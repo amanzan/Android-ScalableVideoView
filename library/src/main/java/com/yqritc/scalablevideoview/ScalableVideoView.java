@@ -26,6 +26,20 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
         MediaPlayer.OnVideoSizeChangedListener {
 
     protected MediaPlayer mMediaPlayer;
+    protected MediaPlayer.OnErrorListener mErrorListener;
+    protected MediaPlayer.OnCompletionListener mCompletionListener;
+    protected MediaPlayer.OnPreparedListener mPrepareListener;
+    protected MediaPlayer.OnInfoListener mInfoListener;
+    protected int mLatestPosition;
+    protected int mAssetId = -1;
+    protected long mOffset;
+    protected long mLength;
+    protected FileDescriptor mFileDescriptor;
+    protected Context mContext;
+    protected Map<String, String> mHeaders;
+    protected Uri mUri;
+    protected String mAssetName;
+    protected String mFilePath;
     protected ScalableType mScalableType = ScalableType.NONE;
 
     public ScalableVideoView(Context context) {
@@ -75,6 +89,41 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
     }
 
     @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (isDataSet()) {
+            initializeMediaPlayer();
+            try {
+                if (mFilePath != null)
+                    setDataSource(mFilePath);
+                else if (mAssetId >= 0)
+                    setRawData(mAssetId);
+                else if (mAssetName != null)
+                    setAssetData(mAssetName);
+                else if (mFileDescriptor != null) {
+                    if (mOffset > 0 || mLength > 0)
+                        setDataSource(mFileDescriptor, mOffset, mLength);
+                    else
+                        setDataSource(mFileDescriptor);
+                } else if (mUri != null && mContext != null) {
+                    if (mHeaders != null)
+                        setDataSource(mContext, mUri, mHeaders);
+                    else
+                        setDataSource(mContext, mUri);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            setOnCompletionListener(mCompletionListener);
+            setOnErrorListener(mErrorListener);
+            setOnInfoListener(mInfoListener);
+            if (mPrepareListener != null)
+                prepareAsync(mPrepareListener);
+            mMediaPlayer.seekTo(mLatestPosition);
+        }
+    }
+
+    @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
         if (mMediaPlayer == null) {
@@ -84,6 +133,7 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
         if (isPlaying()) {
             stop();
         }
+        mLatestPosition = mMediaPlayer.getCurrentPosition();
         release();
     }
 
@@ -116,15 +166,35 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
         }
     }
 
+    private boolean isDataSet() {
+        return mAssetId >= 0 || mAssetName != null || mFilePath != null || mUri != null || mFileDescriptor != null;
+    }
+
+    private void clearData() {
+        mAssetId = -1;
+        mAssetName = null;
+        mFilePath = null;
+        mContext = null;
+        mUri = null;
+        mHeaders = null;
+        mFileDescriptor = null;
+        mLength = 0;
+        mOffset = 0;
+    }
+
     public void setRawData(@RawRes int id) throws IOException {
         AssetFileDescriptor afd = getResources().openRawResourceFd(id);
         setDataSource(afd);
+        clearData();
+        mAssetId = id;
     }
 
     public void setAssetData(@NonNull String assetName) throws IOException {
         AssetManager manager = getContext().getAssets();
         AssetFileDescriptor afd = manager.openFd(assetName);
         setDataSource(afd);
+        clearData();
+        mAssetName = assetName;
     }
 
     private void setDataSource(@NonNull AssetFileDescriptor afd) throws IOException {
@@ -135,28 +205,43 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
     public void setDataSource(@NonNull String path) throws IOException {
         initializeMediaPlayer();
         mMediaPlayer.setDataSource(path);
+        clearData();
+        mFilePath = path;
     }
 
     public void setDataSource(@NonNull Context context, @NonNull Uri uri,
             @Nullable Map<String, String> headers) throws IOException {
         initializeMediaPlayer();
         mMediaPlayer.setDataSource(context, uri, headers);
+        clearData();
+        mContext = context;
+        mUri = uri;
+        mHeaders = headers;
     }
 
     public void setDataSource(@NonNull Context context, @NonNull Uri uri) throws IOException {
         initializeMediaPlayer();
         mMediaPlayer.setDataSource(context, uri);
+        clearData();
+        mContext = context;
+        mUri = uri;
     }
 
     public void setDataSource(@NonNull FileDescriptor fd, long offset, long length)
             throws IOException {
         initializeMediaPlayer();
         mMediaPlayer.setDataSource(fd, offset, length);
+        clearData();
+        mOffset = offset;
+        mLength = length;
+        mFileDescriptor = fd;
     }
 
     public void setDataSource(@NonNull FileDescriptor fd) throws IOException {
         initializeMediaPlayer();
         mMediaPlayer.setDataSource(fd);
+        clearData();
+        mFileDescriptor = fd;
     }
 
     public void setScalableType(ScalableType scalableType) {
@@ -168,12 +253,14 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
             throws IOException, IllegalStateException {
         mMediaPlayer.setOnPreparedListener(listener);
         mMediaPlayer.prepare();
+        mPrepareListener = listener;
     }
 
     public void prepareAsync(@Nullable MediaPlayer.OnPreparedListener listener)
             throws IllegalStateException {
         mMediaPlayer.setOnPreparedListener(listener);
         mMediaPlayer.prepareAsync();
+        mPrepareListener = listener;
     }
 
     public void prepare() throws IOException, IllegalStateException {
@@ -186,14 +273,17 @@ public class ScalableVideoView extends TextureView implements TextureView.Surfac
 
     public void setOnErrorListener(@Nullable MediaPlayer.OnErrorListener listener) {
         mMediaPlayer.setOnErrorListener(listener);
+        mErrorListener = listener;
     }
 
     public void setOnCompletionListener(@Nullable MediaPlayer.OnCompletionListener listener) {
         mMediaPlayer.setOnCompletionListener(listener);
+        mCompletionListener = listener;
     }
 
     public void setOnInfoListener(@Nullable MediaPlayer.OnInfoListener listener) {
         mMediaPlayer.setOnInfoListener(listener);
+        mInfoListener = listener;
     }
 
     public int getCurrentPosition() {
